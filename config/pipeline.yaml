@@ -1,0 +1,56 @@
+raw_db:
+  path: raw.duckdb
+
+sources:
+  - name: customers_csv
+    format: csv
+    path: sample_data/customers.csv
+    table: customers
+
+  - name: orders_parquet
+    format: parquet
+    path: sample_data/orders.parquet
+    table: orders
+
+transformations:
+  - type: filter
+    source: raw.orders
+    condition: amount > 50
+    output_table: high_value_orders
+
+  - type: join
+    left: curated.high_value_orders
+    right: raw.customers
+    join_type: inner
+    on: curated.high_value_orders.customer_id = raw.customers.customer_id
+    select: |
+      curated.high_value_orders.order_id,
+      curated.high_value_orders.customer_id,
+      raw.customers.customer_name,
+      curated.high_value_orders.amount,
+      curated.high_value_orders.order_date
+    output_table: customer_orders
+
+  - type: aggregate
+    source: curated.customer_orders
+    group_by:
+      - customer_id
+      - customer_name
+    metrics:
+      - COUNT(*) AS order_count
+      - SUM(amount) AS total_amount
+    output_table: customer_order_summary
+
+target:
+  postgres:
+    host: localhost
+    port: 5432
+    database: analytics
+    user: postgres
+    password: postgres
+
+targets:
+  - source_table: curated.customer_order_summary
+    target_schema: public
+    target_table: customer_order_summary
+    if_exists: replace
